@@ -6,9 +6,7 @@ import { WebSocketServer } from 'ws';
 
 const app = express();
 // Serve static files from root, public, and src
-app.use(express.static('.'));
-app.use('/public', express.static('public'));
-app.use('/src', express.static('src'));
+app.use(express.static('dist'));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
