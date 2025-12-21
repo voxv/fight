@@ -177,6 +177,16 @@ class MainScene extends Phaser.Scene {
     if (gameState && gameState.boxes && gameState.boxes.length > 0) {
       // Track previous health to detect punch hits (outside forEach to persist between frames)
       if (!this.prevHealth) this.prevHealth = [500, 500];
+      
+      // Show/hide sprites based on whether players are connected
+      for (let i = 0; i < phaserPlayers.length; i++) {
+        if (i < gameState.boxes.length && gameState.boxes[i]) {
+          phaserPlayers[i].setVisible(true);
+        } else {
+          phaserPlayers[i].setVisible(false);
+        }
+      }
+      
       gameState.boxes.forEach((box, i) => {
         if (i >= phaserPlayers.length || !box) return;
         const sprite = phaserPlayers[i];
@@ -298,7 +308,7 @@ class MainScene extends Phaser.Scene {
             this.blockInput = true;
             // Show popup centered in game field
             let popup = document.createElement('div');
-            popup.style.position = 'absolute';
+            popup.style.position = 'fixed';
             popup.style.top = '50%';
             popup.style.left = '50%';
             popup.style.transform = 'translate(-50%, -50%)';
@@ -312,8 +322,7 @@ class MainScene extends Phaser.Scene {
             // Center relative to game field
             const gameDiv = document.getElementById('game-phaser');
             if (gameDiv) {
-              gameDiv.style.position = 'relative';
-              gameDiv.appendChild(popup);
+              document.body.appendChild(popup);
             } else {
               document.body.appendChild(popup);
             }

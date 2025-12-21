@@ -205,8 +205,15 @@ function broadcast(state) {
 
 
 wss.on('connection', (ws) => {
-  const playerId = Object.keys(game.players).length;
-  if (playerId > 1) {
+  // Find the first available player slot (0 or 1)
+  let playerId = -1;
+  if (!game.players[0]) {
+    playerId = 0;
+  } else if (!game.players[1]) {
+    playerId = 1;
+  }
+  
+  if (playerId === -1) {
     ws.send(JSON.stringify({ type: 'full' }));
     ws.close();
     return;
