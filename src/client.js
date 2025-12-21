@@ -10,9 +10,18 @@ function isKeyPressed(key) {
 
 import Phaser from 'phaser';
 
-const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-const wsHost = window.location.host;
-const ws = new WebSocket(`${wsProtocol}://${wsHost}`);
+let ws;
+if (
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1' ||
+  window.location.hostname.startsWith('192.168.')
+) {
+  ws = new WebSocket('ws://localhost:3000');
+} else {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsHost = window.location.host;
+  ws = new WebSocket(`${wsProtocol}://${wsHost}`);
+}
 let playerId = null;
 let gameState = null;
 let inputState = { left: false, right: false, up: false, down: false };
@@ -36,6 +45,9 @@ class MainScene extends Phaser.Scene {
     super('main');
   }
   preload() {
+    // Load punch and kick sounds
+    this.load.audio('punch', '/sounds/punch.mp3');
+    this.load.audio('kick', '/sounds/kick.mp3');
                 // Load crouch animation (3 frames, 160x160)
                 this.load.spritesheet('crouch', '/animations/crouch.png', {
                   frameWidth: 160,
@@ -64,6 +76,9 @@ class MainScene extends Phaser.Scene {
       });
   }
   create() {
+    // Add punch and kick sounds
+    this.punchSound = this.sound.add('punch');
+    this.kickSound = this.sound.add('kick');
               // Crouch animation (3 frames)
               this.anims.create({
                 key: 'crouch',
@@ -160,6 +175,8 @@ class MainScene extends Phaser.Scene {
     }
     // Update player positions and frames
     if (gameState && gameState.boxes && gameState.boxes.length > 0) {
+      // Track previous health to detect punch hits (outside forEach to persist between frames)
+      if (!this.prevHealth) this.prevHealth = [500, 500];
       gameState.boxes.forEach((box, i) => {
         if (i >= phaserPlayers.length || !box) return;
         const sprite = phaserPlayers[i];
@@ -256,6 +273,22 @@ class MainScene extends Phaser.Scene {
         }
         // Update health text
         this.healthTexts[i].setText('HP: ' + Math.round(health));
+        
+        // Play punch/kick sound if local player lands a hit (opponent health decreased)
+        if (i !== playerId && this.prevHealth && box.health < this.prevHealth[i]) {
+          const damageDealt = this.prevHealth[i] - box.health;
+          // 15 HP = kick, 10 HP = punch
+          if (damageDealt >= 15 && this.kickSound) {
+            this.kickSound.play();
+            console.log('Playing kick sound! Damage:', damageDealt);
+          } else if (damageDealt > 0 && this.punchSound) {
+            this.punchSound.play();
+            console.log('Playing punch sound! Damage:', damageDealt);
+          }
+        }
+        
+        // Update previous health for next frame
+        if (this.prevHealth) this.prevHealth[i] = box.health;
       });
         // Check for win condition
         if (gameState.boxes && gameState.boxes.length === 2 && gameState.boxes[0] && gameState.boxes[1] && (gameState.boxes[0].health <= 0 || gameState.boxes[1].health <= 0)) {
