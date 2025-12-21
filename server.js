@@ -1,8 +1,16 @@
 // Basic Node.js server for a server-authoritative fighting game
+
+import express from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
 
-const server = http.createServer();
+const app = express();
+// Serve static files from root, public, and src
+app.use(express.static('.'));
+app.use('/public', express.static('public'));
+app.use('/src', express.static('src'));
+
+const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 
