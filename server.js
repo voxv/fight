@@ -153,8 +153,8 @@ class Game {
       // Hit detection (same as before)
       const dist = Math.abs(p0.x - p1.x);
       if (dist < 40 && Math.abs(p0.y - p1.y) < 40) {
-        // Player 0 attacks (p1 blocks if crouched)
-        if (!p1.input.down) {
+        // Player 0 attacks (only if not crouching, p1 blocks if crouched)
+        if (!p0.input.down && !p1.input.down) {
           if (p0.justPunched) {
             p1.health -= 10;
           }
@@ -162,8 +162,8 @@ class Game {
             p1.health -= 15;
           }
         }
-        // Player 1 attacks (p0 blocks if crouched)
-        if (!p0.input.down) {
+        // Player 1 attacks (only if not crouching, p0 blocks if crouched)
+        if (!p1.input.down && !p0.input.down) {
           if (p1.justPunched) {
             p0.health -= 10;
           }
