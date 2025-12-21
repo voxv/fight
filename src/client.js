@@ -10,7 +10,9 @@ function isKeyPressed(key) {
 
 import Phaser from 'phaser';
 
-const ws = new WebSocket('ws://localhost:3000');
+const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+const wsHost = window.location.host;
+const ws = new WebSocket(`${wsProtocol}://${wsHost}`);
 let playerId = null;
 let gameState = null;
 let inputState = { left: false, right: false, up: false, down: false };
