@@ -17,7 +17,7 @@ class Player {
     this.id = id;
     this.ws = ws;
     this.x = id === 0 ? 100 : 500;
-    this.y = 550;
+    this.y = 385;
     this.vx = 0;
     this.vy = 0;
     this.input = {};
@@ -29,6 +29,12 @@ class Player {
     this.isKicking = false; // Track kick animation state
     this.punchTimer = 0; // Duration of punch animation
     this.kickTimer = 0; // Duration of kick animation
+    this.comboBuffer = []; // Tracks directional inputs: 'front' or 'back'
+    this.comboBufferTime = []; // Timestamps for combo inputs
+    this.dashVelocity = 0; // Dash momentum
+    this.lastComboTime = 0; // Timestamp of last successful combo
+    this.prevFrontPress = false; // Track previous front press state
+    this.prevBackPress = false; // Track previous back press state
   }
   setInput(input) {
     this.input = input;
@@ -44,12 +50,89 @@ class Player {
       this.isKicking = true;
       this.kickTimer = 250; // milliseconds
     }
+
+    // Combo detection: double tap towards front
+    // Player 0 faces right (front=right, back=left), Player 1 faces left (front=left, back=right)
+    // Track actual left/right presses
+    let leftPress = !!input.left;
+    let rightPress = !!input.right;
+    
+    const frontDir = this.id === 0 ? rightPress : leftPress;
+    const backDir = this.id === 0 ? leftPress : rightPress;
+
+    // Clear combo buffer if inputs are too old (>400ms between first and latest)
+    if (this.comboBuffer.length > 0 && Date.now() - this.comboBufferTime[0] > 400) {
+      this.comboBuffer = [];
+      this.comboBufferTime = [];
+    }
+
+    // Detect press (transition from false to true) rather than just checking if held
+    const frontPressed = frontDir && !this.prevFrontPress;
+    const backPressed = backDir && !this.prevBackPress;
+    
+    // Track this frame's state for next frame
+    this.prevFrontPress = frontDir;
+    this.prevBackPress = backDir;
+
+    // Add to combo buffer when a direction is newly pressed
+    if (frontPressed) {
+      this.comboBuffer.push('front');
+      this.comboBufferTime.push(Date.now());
+      // Keep only last 2 inputs
+      if (this.comboBuffer.length > 2) {
+        this.comboBuffer.shift();
+        this.comboBufferTime.shift();
+      }
+    } else if (backPressed) {
+      this.comboBuffer.push('back');
+      this.comboBufferTime.push(Date.now());
+      // Keep only last 2 inputs
+      if (this.comboBuffer.length > 2) {
+        this.comboBuffer.shift();
+        this.comboBufferTime.shift();
+      }
+    }
+
+    // Check for double tap front combo within 300ms window
+    if (
+      this.comboBuffer.length === 2 &&
+      this.comboBuffer[0] === 'front' &&
+      this.comboBuffer[1] === 'front' &&
+      (this.comboBufferTime[1] - this.comboBufferTime[0] < 300)
+    ) {
+      const now = Date.now();
+      const comboCooldown = 1000; // 1000ms cooldown between combos
+      
+      // Double tap front: dash forward
+      if (now - this.lastComboTime >= comboCooldown) {
+        this.dashVelocity = this.id === 0 ? 25 : -25;
+        this.lastComboTime = now;
+      }
+      this.comboBuffer = [];
+      this.comboBufferTime = [];
+    } else if (
+      this.comboBuffer.length === 2 &&
+      this.comboBuffer[0] === 'back' &&
+      this.comboBuffer[1] === 'back' &&
+      (this.comboBufferTime[1] - this.comboBufferTime[0] < 300)
+    ) {
+      const now = Date.now();
+      const comboCooldown = 1000; // 1000ms cooldown between combos
+      
+      // Double tap back: dash backward
+      if (now - this.lastComboTime >= comboCooldown) {
+        this.dashVelocity = this.id === 0 ? -25 : 25;
+        this.lastComboTime = now;
+      }
+      this.comboBuffer = [];
+      this.comboBufferTime = [];
+    }
   }
   update(dt, otherPlayer) {
-    const speed = 7;
-    const jumpSpeed = 22;
-    const gravity = 2;
-    const floorY = 450;
+    const speed = 5;
+    const jumpSpeed = 20;
+    const gravity = 2.4;
+    const floorY = 355;
     
     // Update punch/kick timers
     if (this.punchTimer > 0) {
@@ -64,6 +147,22 @@ class Player {
       if (this.kickTimer <= 0) {
         this.isKicking = false;
         this.kickTimer = 0;
+      }
+    }
+
+    // Apply dash velocity (decelerating dash movement)
+    if (this.dashVelocity !== 0) {
+      this.x += this.dashVelocity * dt / 16;
+      this.dashVelocity *= 0.85; // Decelerate
+      if (Math.abs(this.dashVelocity) < 0.5) this.dashVelocity = 0;
+
+      // Stop dash if colliding with other player
+      if (otherPlayer) {
+        const dist = Math.abs(this.x - otherPlayer.x);
+        if (dist < 40) {
+          // Stop the dash
+          this.dashVelocity = 0;
+        }
       }
     }
 
@@ -137,6 +236,9 @@ class Game {
   removePlayer(id) {
     delete this.players[id];
   }
+  getPlayerCount() {
+    return Object.keys(this.players).length;
+  }
   handleInput(id, input) {
     if (this.players[id]) {
       this.players[id].setInput(input);
@@ -203,6 +305,14 @@ function broadcast(state) {
   });
 }
 
+function broadcastStatus(playerCount) {
+  Object.values(game.players).forEach(player => {
+    if (player.ws.readyState === 1) {
+      player.ws.send(JSON.stringify({ type: 'status', playerCount }));
+    }
+  });
+}
+
 
 wss.on('connection', (ws) => {
   // Find the first available player slot (0 or 1)
@@ -220,6 +330,8 @@ wss.on('connection', (ws) => {
   }
   game.addPlayer(playerId, ws);
   ws.send(JSON.stringify({ type: 'init', playerId }));
+  // Broadcast player count to all connected players
+  broadcastStatus(game.getPlayerCount());
 
   ws.on('message', (message) => {
     try {
@@ -232,6 +344,8 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     game.removePlayer(playerId);
+    // Broadcast updated player count when a player disconnects
+    broadcastStatus(game.getPlayerCount());
   });
 });
 

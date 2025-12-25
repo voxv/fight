@@ -31,7 +31,7 @@ inputState.kick = false;
 
 const SPRITE_WIDTH = 140;
 const SPRITE_HEIGHT = 160;
-const FLOOR_Y = 450;
+const FLOOR_Y = 355;
 const IDLE_FRAME_DURATION = 300;
 
 let phaserPlayers = [];
@@ -48,6 +48,10 @@ class MainScene extends Phaser.Scene {
     // Load punch and kick sounds
     this.load.audio('punch', '/sounds/punch.mp3');
     this.load.audio('kick', '/sounds/kick.mp3');
+    // Load background music
+    this.load.audio('background', '/sounds/background.mp3');
+    // Load death sound
+    this.load.audio('death', '/sounds/death.mp3');
                 // Load crouch animation (3 frames, 160x160)
                 this.load.spritesheet('crouch', '/animations/crouch.png', {
                   frameWidth: 160,
@@ -74,11 +78,21 @@ class MainScene extends Phaser.Scene {
         frameWidth: 160,
         frameHeight: 160
       });
+    // Load background image
+    this.load.image('background', '/images/background.png');
   }
   create() {
+    // Add background image and stretch to fill screen
+    const background = this.add.image(400, 300, 'background');
+    background.setDisplaySize(800, 600);
+    
     // Add punch and kick sounds
     this.punchSound = this.sound.add('punch');
     this.kickSound = this.sound.add('kick');
+    // Add background music
+    this.backgroundMusic = this.sound.add('background', { loop: true, volume: 0.5 });
+    // Add death sound
+    this.deathSound = this.sound.add('death');
               // Crouch animation (3 frames)
               this.anims.create({
                 key: 'crouch',
@@ -92,13 +106,6 @@ class MainScene extends Phaser.Scene {
           frameRate: 12,
           repeat: -1
         });
-    // Draw floor
-    this.floor = this.add.graphics();
-    this.floor.lineStyle(4, 0x000000, 1);
-    this.floor.beginPath();
-    this.floor.moveTo(0, FLOOR_Y);
-    this.floor.lineTo(800, FLOOR_Y);
-    this.floor.strokePath();
 
     // Create player sprites
     phaserPlayers = [
@@ -108,6 +115,10 @@ class MainScene extends Phaser.Scene {
     phaserPlayers.forEach(sprite => {
       sprite.setOrigin(0, 1); // bottom-left
       sprite.setScale(1, 1);
+      // Add shadow and outline to make characters bold and distinct
+      sprite.setDepth(10);
+      const shadowGraphics = this.add.graphics();
+      sprite.shadowGraphics = shadowGraphics;
     });
     
     // Create health bars for each player
@@ -191,7 +202,18 @@ class MainScene extends Phaser.Scene {
         if (i >= phaserPlayers.length || !box) return;
         const sprite = phaserPlayers[i];
         sprite.x = box.x;
-        sprite.y = box.y + 30;
+        sprite.y = box.y + (box.health <= 0 ? -20 : 30);
+        
+        // Apply tints to players
+        if (i === 1) {
+          sprite.setTint(0x66ffff);
+        } else {
+          sprite.setTint(0xffff66);
+        }
+        
+        // Scale up slightly and set additive blend to make characters bold and distinct
+        sprite.setScale(1.1);
+        sprite.setBlendMode(Phaser.BlendModes.NORMAL);
 
         // Flip sprite based on movement direction
         if (i === playerId) {
@@ -213,7 +235,16 @@ class MainScene extends Phaser.Scene {
 
         // Play crouch animation if down arrow is pressed (local) or box.crouching (remote)
         const isCrouching = (i === playerId && inputState.down) || (i !== playerId && box && box.down);
-        if (isCrouching) {
+        if (box.health <= 0) {
+          // Player is dead - show idle frame 0 rotated 90 degrees on their back
+          sprite.stop();
+          sprite.setTexture('idle');
+          sprite.setOrigin(0.5, 0.5);
+          sprite.setDisplaySize(SPRITE_WIDTH, SPRITE_HEIGHT);
+          sprite.setFrame(0);
+          // Rotate based on facing direction: flip X means facing left, so rotate accordingly
+          sprite.setRotation(sprite.flipX ? Math.PI / 2 : -Math.PI / 2);
+        } else if (isCrouching) {
           if (sprite.anims.currentAnim?.key !== 'crouch' || sprite.texture.key !== 'crouch') {
             sprite.setTexture('crouch');
             sprite.setOrigin(0, 1);
@@ -306,6 +337,10 @@ class MainScene extends Phaser.Scene {
           if (!this.winPopupShown) {
             this.winPopupShown = true;
             this.blockInput = true;
+            // Play death sound when a player wins
+            if (this.deathSound) {
+              this.deathSound.play();
+            }
             // Show popup centered in game field
             let popup = document.createElement('div');
             popup.style.position = 'fixed';
@@ -365,6 +400,24 @@ ws.onmessage = (event) => {
     playerId = msg.playerId;
   } else if (msg.type === 'state') {
     gameState = msg.state;
+  } else if (msg.type === 'status') {
+    // Handle background music based on player count
+    if (window.game && window.game.scene && window.game.scene.scenes) {
+      const mainScene = window.game.scene.scenes.find(s => s.scene.key === 'main');
+      if (mainScene && mainScene.backgroundMusic) {
+        if (msg.playerCount === 2) {
+          // Start background music when 2 players are connected
+          if (!mainScene.backgroundMusic.isPlaying) {
+            mainScene.backgroundMusic.play();
+          }
+        } else {
+          // Stop background music when players disconnect
+          if (mainScene.backgroundMusic.isPlaying) {
+            mainScene.backgroundMusic.stop();
+          }
+        }
+      }
+    }
   } else if (msg.type === 'full') {
     alert('Game is full!');
   }
