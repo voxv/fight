@@ -1,0 +1,7 @@
+This is a placeholder file to document the new fighter_attack.png spritesheet. The actual image should be present in the animations/ directory.
+
+Specs:
+- Path: animations/fighter_attack.png
+- Total size: 623x96
+- Frame count: 6
+- Frame size: 103.833x96

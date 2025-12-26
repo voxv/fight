@@ -1,14 +1,15 @@
-// Utility to check if a key is physically pressed
-function isKeyPressed(key) {
-  // Use our own tracking, but guard against undefined
-  if (typeof window !== 'undefined' && window.isKeyDown && typeof window.isKeyDown === 'object') {
-    return !!window.isKeyDown[key];
-  }
-  return false;
-}
+import { isKeyPressed } from './utils.js';
+import { characterDisplayConfig } from './config/characterDisplayConfig.js';
 // Basic client for Mortal Kombat style game
 
 import Phaser from 'phaser';
+import { createHealthBars, updateHealthBars, showWinPopup } from './ui.js';
+import { AudioManager } from './audioManager.js';
+import { preloadAssets } from './preloadAssets.js';
+import { createKnightAnimations } from './KnightCharacter.js';
+import { createFighterAnimations } from './FighterCharacter.js';
+import { Player } from './Player.js';
+import { setupScene, teardownScene } from './SceneManager.js';
 
 let ws;
 if (
@@ -45,115 +46,45 @@ class MainScene extends Phaser.Scene {
     super('main');
   }
   preload() {
-    // Load punch and kick sounds
-    this.load.audio('punch', '/sounds/punch.mp3');
-    this.load.audio('kick', '/sounds/kick.mp3');
-    // Load background music
-    this.load.audio('background', '/sounds/background.mp3');
-    // Load death sound
-    this.load.audio('death', '/sounds/death.mp3');
-                // Load crouch animation (3 frames, 160x160)
-                this.load.spritesheet('crouch', '/animations/crouch.png', {
-                  frameWidth: 160,
-                  frameHeight: 160
-                });
-        this.load.spritesheet('run', '/animations/run_test2.png', {
-          frameWidth: 140,
-          frameHeight: 160
-        });
-        // Load kick animation (3 frames, 160x160)
-        this.load.spritesheet('kick', '/animations/kick1.png', {
-          frameWidth: 160,
-          frameHeight: 160
-        });
-    this.load.spritesheet('idle', '/animations/idle_test.png', {
-      frameWidth: SPRITE_WIDTH,
-      frameHeight: SPRITE_HEIGHT
-    });
-    this.load.spritesheet('jumpn', '/animations/jumpn_test.png', {
-      frameWidth: 160,
-      frameHeight: 160
-    });
-      this.load.spritesheet('punch', '/animations/punch1.png', {
-        frameWidth: 160,
-        frameHeight: 160
-      });
-    // Load background image
-    this.load.image('background', '/images/background.png');
+    // Load all audio using AudioManager
+    this.audioManager = new AudioManager(this);
+    this.audioManager.preload();
+    // Load all other assets using preloadAssets
+    preloadAssets(this);
   }
   create() {
-    // Add background image and stretch to fill screen
-    const background = this.add.image(400, 300, 'background');
-    background.setDisplaySize(800, 600);
-    
-    // Add punch and kick sounds
-    this.punchSound = this.sound.add('punch');
-    this.kickSound = this.sound.add('kick');
-    // Add background music
-    this.backgroundMusic = this.sound.add('background', { loop: true, volume: 0.5 });
-    // Add death sound
-    this.deathSound = this.sound.add('death');
-              // Crouch animation (3 frames)
-              this.anims.create({
-                key: 'crouch',
-                frames: this.anims.generateFrameNumbers('crouch', { start: 0, end: 2 }),
-                frameRate: 24,
-                repeat: 0
-              });
-        this.anims.create({
-          key: 'run',
-          frames: this.anims.generateFrameNumbers('run', { start: 0, end: 7 }),
-          frameRate: 12,
-          repeat: -1
-        });
+    // Use SceneManager for setup
+    setupScene(this);
 
-    // Create player sprites
-    phaserPlayers = [
-      this.add.sprite(100, FLOOR_Y, 'idle', 0),
-      this.add.sprite(500, FLOOR_Y, 'idle', 0)
-    ];
-    phaserPlayers.forEach(sprite => {
-      sprite.setOrigin(0, 1); // bottom-left
-      sprite.setScale(1, 1);
-      // Add shadow and outline to make characters bold and distinct
-      sprite.setDepth(10);
-      const shadowGraphics = this.add.graphics();
-      sprite.shadowGraphics = shadowGraphics;
-    });
-    
-    // Create health bars for each player
-    this.healthBars = [null, null];
-    this.healthTexts = [null, null];
-    for (let i = 0; i < 2; i++) {
-      // Health bar background
-      this.healthBars[i] = this.add.graphics();
-      // Health text
-      this.healthTexts[i] = this.add.text(i === 0 ? 20 : 550, 20, 'HP: 100', { fontSize: '16px', fill: '#fff' });
-    }
-    // Create jump animation
-    this.anims.create({
-      key: 'jumpn',
-      frames: this.anims.generateFrameNumbers('jumpn', { start: 0, end: 6 }),
-      frameRate: 7,
-      repeat: -1
-    });
-      this.anims.create({
-        key: 'punch',
-        frames: this.anims.generateFrameNumbers('punch', { start: 0, end: 2 }),
-        frameRate: 10,
-        repeat: 0
+    // Create and play audio using AudioManager
+    this.audioManager.create();
+    this.audioManager.play('background');
+
+    // Create all knight and fighter animations using character modules
+    createKnightAnimations(this);
+    createFighterAnimations(this);
+
+      // Create player sprites and Player instances
+      phaserPlayers = [
+        new Player(this, this.add.sprite(100, FLOOR_Y, 'fighter_idle', 0), { health: 500 }),
+        new Player(this, this.add.sprite(500, FLOOR_Y, 'knight_idle', 0), { health: 500 })
+      ];
+      phaserPlayers.forEach(player => {
+        player.sprite.setOrigin(0, 1); // bottom-left
+        player.sprite.setScale(1, 1);
+        player.sprite.setDepth(10);
+        const shadowGraphics = this.add.graphics();
+        player.sprite.shadowGraphics = shadowGraphics;
       });
-      // Kick animation (3 frames)
-      this.anims.create({
-        key: 'kick',
-        frames: this.anims.generateFrameNumbers('kick', { start: 0, end: 2 }),
-        frameRate: 10,
-        repeat: 0
-      });
-      // Track kick state and timer for each player
-      this.kickState = [false, false];
-      this.kickTimer = [0, 0];
-  let punchState = [false, false]; // Track punch state for each player
+
+    // Create health bars and texts using UI module
+    const ui = createHealthBars(this);
+    this.healthBars = ui.healthBars;
+    this.healthTexts = ui.healthTexts;
+
+    // Track kick state and timer for each player
+    this.kickState = [false, false];
+    this.kickTimer = [0, 0];
   }
   update(time, delta) {
     // Animate idle
@@ -189,27 +120,28 @@ class MainScene extends Phaser.Scene {
       // Track previous health to detect punch hits (outside forEach to persist between frames)
       if (!this.prevHealth) this.prevHealth = [500, 500];
       
-      // Show/hide sprites based on whether players are connected
-      for (let i = 0; i < phaserPlayers.length; i++) {
-        if (i < gameState.boxes.length && gameState.boxes[i]) {
-          phaserPlayers[i].setVisible(true);
-        } else {
-          phaserPlayers[i].setVisible(false);
+        for (let i = 0; i < phaserPlayers.length; i++) {
+          if (i < gameState.boxes.length && gameState.boxes[i]) {
+            phaserPlayers[i].sprite.setVisible(true);
+          } else {
+            phaserPlayers[i].sprite.setVisible(false);
+          }
         }
-      }
+      // Update player state from gameState.boxes
+      gameState.boxes.forEach((box, i) => {
+        if (i >= phaserPlayers.length || !box) return;
+        const player = phaserPlayers[i];
+        player.updateFromBox(box);
+        // ...existing animation and state logic, now use player.sprite and player.state...
+      });
       
       gameState.boxes.forEach((box, i) => {
         if (i >= phaserPlayers.length || !box) return;
-        const sprite = phaserPlayers[i];
+        const player = phaserPlayers[i];
+        const sprite = player.sprite;
         sprite.x = box.x;
-        sprite.y = box.y + (box.health <= 0 ? -20 : 30);
-        
-        // Apply tints to players
-        if (i === 1) {
-          sprite.setTint(0x66ffff);
-        } else {
-          sprite.setTint(0xffff66);
-        }
+        // Y position will be set based on the character's current state below
+        // No tint applied
         
         // Scale up slightly and set additive blend to make characters bold and distinct
         sprite.setScale(1.1);
@@ -233,147 +165,212 @@ class MainScene extends Phaser.Scene {
           sprite.prevX = sprite.x;
         }
 
-        // Play crouch animation if down arrow is pressed (local) or box.crouching (remote)
+        // Centralized config for all scaling and offset values
+        const isKnight = i === 1;
+        const charType = isKnight ? 'knight' : 'fighter';
+        const config = characterDisplayConfig[charType];
         const isCrouching = (i === playerId && inputState.down) || (i !== playerId && box && box.down);
         if (box.health <= 0) {
-          // Player is dead - show idle frame 0 rotated 90 degrees on their back
           sprite.stop();
-          sprite.setTexture('idle');
+          if (isKnight) {
+            sprite.setTexture('knight_idle');
+          } else {
+            sprite.setTexture('fighter_idle');
+          }
           sprite.setOrigin(0.5, 0.5);
-          sprite.setDisplaySize(SPRITE_WIDTH, SPRITE_HEIGHT);
+          sprite.setDisplaySize(config.dead.width, config.dead.height);
           sprite.setFrame(0);
-          // Rotate based on facing direction: flip X means facing left, so rotate accordingly
+          sprite.y = box.y + config.dead.yOffset;
           sprite.setRotation(sprite.flipX ? Math.PI / 2 : -Math.PI / 2);
         } else if (isCrouching) {
-          if (sprite.anims.currentAnim?.key !== 'crouch' || sprite.texture.key !== 'crouch') {
-            sprite.setTexture('crouch');
+          const crouchKey = isKnight ? 'knight_crouch' : 'fighter_crouch';
+          if (sprite.anims.currentAnim?.key !== crouchKey || sprite.texture.key !== crouchKey) {
+            sprite.setTexture(crouchKey);
             sprite.setOrigin(0, 1);
-            sprite.setDisplaySize(160, 160);
-            sprite.play('crouch');
+            if (isKnight) {
+              sprite.play('knight_crouch');
+            } else {
+              sprite.setFrame(1);
+            }
           }
-        } else if ((i === playerId && this.kickState && this.kickState[i]) || (i !== playerId && box && box.isKicking)) {
-          if (sprite.anims.currentAnim?.key !== 'kick' || sprite.texture.key !== 'kick') {
-            sprite.setTexture('kick');
-            sprite.setOrigin(0, 1);
-            sprite.setDisplaySize(160, 160);
-            sprite.play('kick');
-            this.kickTimer[i] = 250; // Kick animation duration in ms (3 frames at 10 fps = 300ms, using 250 to be safe)
+          // Always set display size for crouch every frame
+          sprite.setDisplaySize(config.crouch.width, config.crouch.height);
+          sprite.y = box.y + config.crouch.yOffset;
+        } else if (((i === playerId && this.kickState && this.kickState[i]) || (i !== playerId && box && box.isKicking)) && !((i === playerId && punchState[i]) || (i !== playerId && box && box.isPunching))) {
+          if (isKnight) {
+            if (sprite.anims.currentAnim?.key !== 'knight_attack' || sprite.texture.key !== 'knight_attack') {
+              sprite.setTexture('knight_attack');
+              sprite.setOrigin(0, 1);
+              if (sprite.flipX) {
+                sprite.setDisplaySize(config.attackFlip.width, config.attackFlip.height);
+              } else {
+                sprite.setDisplaySize(config.attack.width, config.attack.height);
+              }
+              sprite.play('knight_attack');
+              this.kickTimer[i] = 320;
+            }
+            if (sprite.flipX) {
+              sprite.setDisplaySize(config.attackFlip.width, config.attackFlip.height);
+            } else {
+              sprite.setDisplaySize(config.attack.width, config.attack.height);
+            }
+            sprite.y = box.y + config.attack.yOffset;
+            sprite.x = box.x + (sprite.flipX ? config.attack.xOffset.left : config.attack.xOffset.right);
+          } else {
+            if (sprite.anims.currentAnim?.key !== 'fighter_attack' || sprite.texture.key !== 'fighter_attack') {
+              sprite.setTexture('fighter_attack');
+              sprite.setOrigin(0, 1);
+              sprite.play('fighter_attack');
+              this.kickTimer[i] = 250;
+            }
+            // Always use config.kick for fighter's kick
+            sprite.setDisplaySize(config.kick.width, config.kick.height);
+            sprite.y = box.y + config.kick.yOffset;
+            sprite.x = box.x + (sprite.flipX ? config.kick.xOffset.left : config.kick.xOffset.right);
           }
+        } else if ((i === playerId && box && box.isBackflipping) || (i !== playerId && box && box.isBackflipping)) {
+          sprite.stop();
+          if (isKnight) {
+            sprite.setTexture('knight_idle');
+            sprite.setOrigin(0.5, 0.3);
+            sprite.setFrame(0);
+            sprite.y = box.y + config.backflip.yOffset;
+            sprite.setDisplaySize(config.backflip.width, config.backflip.height);
+          } else {
+            sprite.setTexture('fighter_idle');
+            sprite.setOrigin(0.5, 0.3);
+            sprite.setDisplaySize(config.backflip.width, config.backflip.height);
+            sprite.y = box.y + config.backflip.yOffset;
+          }
+          if (box.facingRight !== undefined) {
+            sprite.setFlipX(!box.facingRight);
+          }
+          if (backflipStartTime[i] === null) {
+            backflipStartTime[i] = Date.now();
+          }
+          const elapsedTime = Date.now() - backflipStartTime[i];
+          const backflipProgress = Math.min(elapsedTime / BACKFLIP_DURATION, 1);
+          const rotationDir = box.facingRight ? -1 : 1;
+          sprite.setRotation(rotationDir * backflipProgress * Math.PI * 2);
         } else if ((i === playerId && punchState[i]) || (i !== playerId && box && box.isPunching)) {
-          if (sprite.anims.currentAnim?.key !== 'punch' || sprite.texture.key !== 'punch') {
-            sprite.setTexture('punch');
-            sprite.setOrigin(0, 1);
-            sprite.setDisplaySize(175, 160);
-            sprite.play('punch');
-            punchTimer[i] = 250;
+          if (isKnight) {
+            if (sprite.anims.currentAnim?.key !== 'knight_attack' || sprite.texture.key !== 'knight_attack') {
+              sprite.setTexture('knight_attack');
+              sprite.setOrigin(0, 1);
+              if (sprite.flipX) {
+                sprite.setDisplaySize(config.attackFlip.width, config.attackFlip.height);
+              } else {
+                sprite.setDisplaySize(config.attack.width, config.attack.height);
+              }
+              sprite.play('knight_attack');
+              punchTimer[i] = 320;
+            }
+            if (sprite.flipX) {
+              sprite.setDisplaySize(config.attackFlip.width, config.attackFlip.height);
+            } else {
+              sprite.setDisplaySize(config.attack.width, config.attack.height);
+            }
+            sprite.y = box.y + config.attack.yOffset;
+            sprite.x = box.x + (sprite.flipX ? config.attack.xOffset.left : config.attack.xOffset.right);
+          } else {
+            if (sprite.anims.currentAnim?.key !== 'fighter_attack' || sprite.texture.key !== 'fighter_attack') {
+              sprite.setTexture('fighter_attack');
+              sprite.setOrigin(0, 1);
+              sprite.play('fighter_attack');
+              punchTimer[i] = 250;
+            }
+            // Always use config.attack for fighter's punch
+            sprite.setDisplaySize(config.attack.width, config.attack.height);
+            sprite.y = box.y + config.attack.yOffset;
+            sprite.x = box.x + (sprite.flipX ? config.attack.xOffset.left : config.attack.xOffset.right);
           }
-        } else if (box && box.isJumpingDiagonal) {
-          // Use server state to detect diagonal jump
-          if (sprite.anims.currentAnim?.key !== 'jumpn' || sprite.texture.key !== 'jumpn') {
-            sprite.setTexture('jumpn');
+        } else if (box && (box.isJumping || box.isJumpingDiagonal)) {
+          const jumpKey = isKnight ? 'knight_jump' : 'fighter_jump';
+          if (sprite.anims.currentAnim?.key !== jumpKey || sprite.texture.key !== jumpKey) {
+            sprite.setTexture(jumpKey);
             sprite.setOrigin(0, 1);
-            sprite.setDisplaySize(160, 160);
-            sprite.play('jumpn');
+            sprite.play(jumpKey);
           }
+          sprite.setDisplaySize(config.jump.width, config.jump.height);
+          sprite.y = box.y + config.jump.yOffset;
         } else if ((i === playerId && (inputState.left || inputState.right) && !inputState.up) ||
                    (i !== playerId && gameState.boxes[i] && Math.abs(gameState.boxes[i].x - phaserPlayers[i].x) > 0)) {
-          // Running animation for local player (based on input) or remote player (based on position change)
-          if (sprite.anims.currentAnim?.key !== 'run' || sprite.texture.key !== 'run') {
-            sprite.setTexture('run');
+          const runKey = isKnight ? 'knight_run' : 'fighter_run';
+          if (sprite.anims.currentAnim?.key !== runKey || sprite.texture.key !== runKey) {
+            sprite.setTexture(runKey);
             sprite.setOrigin(0, 1);
-            sprite.setDisplaySize(160, 160);
-            sprite.play('run');
+            sprite.play(runKey);
           }
+          sprite.setDisplaySize(config.run.width, config.run.height);
+          sprite.y = box.y + config.run.yOffset;
         } else {
-          if (sprite.anims.currentAnim?.key === 'jumpn' || sprite.anims.currentAnim?.key === 'run' || sprite.texture.key !== 'idle') {
-            sprite.stop();
-            sprite.setTexture('idle');
-            sprite.setOrigin(0, 1);
-            sprite.setDisplaySize(SPRITE_WIDTH, SPRITE_HEIGHT);
+          if (box.y === FLOOR_Y) {
+            if (sprite.originY !== 1) {
+              sprite.setOrigin(0, 1);
+              sprite.setRotation(0);
+              backflipStartTime[i] = null;
+            }
+            // Always set display size for idle every frame
+            sprite.setDisplaySize(config.idle.width, config.idle.height);
+            if (sprite.anims.currentAnim?.key === 'jumpn' || sprite.anims.currentAnim?.key === 'run' || sprite.texture.key !== 'idle' && sprite.texture.key !== 'knight_idle') {
+              sprite.stop();
+              if (isKnight) {
+                sprite.setTexture('knight_idle');
+                sprite.play('knight_idle');
+              } else {
+                sprite.setTexture('fighter_idle');
+                sprite.play('fighter_idle');
+              }
+            }
+            sprite.y = box.y + config.idle.yOffset;
+            if (box.facingRight !== undefined) {
+              sprite.setFlipX(!box.facingRight ? true : false);
+            }
+            let isIdle = true;
+            if (i === playerId && (inputState.left || inputState.right || inputState.up)) {
+              isIdle = false;
+            }
+            const frameToShow = isIdle ? idleFrame : 0;
+            sprite.setFrame(frameToShow);
           }
-          // Idle or other state
-          let isIdle = true;
-          if (i === playerId && (inputState.left || inputState.right || inputState.up)) {
-            isIdle = false;
-          }
-          const frameToShow = isIdle ? idleFrame : 0;
-          sprite.setFrame(frameToShow);
         }
-        
-        // Update health bar
-        const health = box.health !== undefined ? box.health : 100;
-        this.healthBars[i].clear();
-        // Draw background (red)
-        this.healthBars[i].fillStyle(0xff0000, 1);
-        this.healthBars[i].fillRect(i === 0 ? 20 : 550, 20, 200, 20);
-        // Only draw green if health > 0
-        if (health > 0) {
-          this.healthBars[i].fillStyle(0x00aa00, 1);
-          const barWidth = Math.max(0, Math.min(200, (health / 500) * 200));
-          this.healthBars[i].fillRect(i === 0 ? 20 : 550, 20, barWidth, 20);
-        }
-        // Update health text
-        this.healthTexts[i].setText('HP: ' + Math.round(health));
-        
+        // Update health bars and texts using UI module
+        updateHealthBars(this.healthBars, this.healthTexts, gameState.boxes);
         // Play punch/kick sound if local player lands a hit (opponent health decreased)
         if (i !== playerId && this.prevHealth && box.health < this.prevHealth[i]) {
           const damageDealt = this.prevHealth[i] - box.health;
           // 15 HP = kick, 10 HP = punch
-          if (damageDealt >= 15 && this.kickSound) {
-            this.kickSound.play();
+          if (damageDealt >= 15) {
+            this.audioManager.play('kick');
             console.log('Playing kick sound! Damage:', damageDealt);
-          } else if (damageDealt > 0 && this.punchSound) {
-            this.punchSound.play();
+          } else if (damageDealt > 0) {
+            this.audioManager.play('punch');
             console.log('Playing punch sound! Damage:', damageDealt);
           }
         }
-        
         // Update previous health for next frame
         if (this.prevHealth) this.prevHealth[i] = box.health;
       });
-        // Check for win condition
-        if (gameState.boxes && gameState.boxes.length === 2 && gameState.boxes[0] && gameState.boxes[1] && (gameState.boxes[0].health <= 0 || gameState.boxes[1].health <= 0)) {
-          let winner = gameState.boxes[0].health <= 0 ? 2 : 1;
-          if (!this.winPopupShown) {
-            this.winPopupShown = true;
-            this.blockInput = true;
-            // Play death sound when a player wins
-            if (this.deathSound) {
-              this.deathSound.play();
-            }
-            // Show popup centered in game field
-            let popup = document.createElement('div');
-            popup.style.position = 'fixed';
-            popup.style.top = '50%';
-            popup.style.left = '50%';
-            popup.style.transform = 'translate(-50%, -50%)';
-            popup.style.background = '#222';
-            popup.style.color = '#fff';
-            popup.style.padding = '40px 60px';
-            popup.style.fontSize = '2em';
-            popup.style.borderRadius = '20px';
-            popup.style.zIndex = '9999';
-            popup.innerText = `Player ${winner} wins!`;
-            // Center relative to game field
-            const gameDiv = document.getElementById('game-phaser');
-            if (gameDiv) {
-              document.body.appendChild(popup);
-            } else {
-              document.body.appendChild(popup);
-            }
-            // Remove popup and reset after 5 seconds
-            setTimeout(() => {
-              if (popup.parentNode) popup.parentNode.removeChild(popup);
-              this.winPopupShown = false;
-              this.blockInput = false;
-              // Reset game state (client-side only)
-              if (window.location) window.location.reload();
-            }, 5000);
-          }
-        } else {
-          this.winPopupShown = false;
-          this.blockInput = false;
+
+      // Check for win condition
+      if (gameState.boxes && gameState.boxes.length === 2 && gameState.boxes[0] && gameState.boxes[1] && (gameState.boxes[0].health <= 0 || gameState.boxes[1].health <= 0)) {
+        let winnerIndex = gameState.boxes[0].health <= 0 ? 1 : 0;
+        let isYouWinner = (winnerIndex === playerId);
+        if (!this.winPopupShown) {
+          this.winPopupShown = true;
+          this.blockInput = true;
+          this.audioManager.play('death');
+          // Use UI module to show win/lose popup
+          showWinPopup(isYouWinner, () => {
+            this.winPopupShown = false;
+            this.blockInput = false;
+            if (window.location) window.location.reload();
+          });
         }
+      } else {
+        this.winPopupShown = false;
+        this.blockInput = false;
+      }
     }
   }
 }
@@ -430,6 +427,10 @@ function sendInput() {
 // Track keydown state globally (for arrow keys only)
 window.isKeyDown = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
 
+// Track backflip animation progress for smooth rotation
+let backflipStartTime = [null, null];
+const BACKFLIP_DURATION = 400; // milliseconds (reduced from 800 for faster rotation)
+
 // Prevent repeated punch/kick on hold
 let punchPressed = false;
 let kickPressed = false;
@@ -439,6 +440,12 @@ document.addEventListener('keydown', (e) => {
     const mainScene = window.game.scene.scenes.find(s => s.scene.key === 'main');
     if (mainScene && mainScene.blockInput) return;
   }
+  
+  // Block input if player is backflipping
+  if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId] && gameState.boxes[playerId].isBackflipping) {
+    return;
+  }
+  
   // Track key state
   if (e.key in window.isKeyDown) window.isKeyDown[e.key] = true;
   
@@ -457,14 +464,14 @@ document.addEventListener('keydown', (e) => {
     if (inputState.left) { inputState.left = false; changed = true; }
     if (inputState.right) { inputState.right = false; changed = true; }
   }
-  if ((e.key === 'q' || e.key === 'Q') && !punchPressed) {
+  // If both punch and kick are pressed at the same time, only register punch
+  if ((e.key === 'q' || e.key === 'Q') && !punchPressed && !kickPressed) {
     punchPressed = true;
     punchState[playerId] = true;
     inputState.punch = true;
     sendInput();
     inputState.punch = false;
-  }
-  if ((e.key === 'w' || e.key === 'W') && !kickPressed) {
+  } else if ((e.key === 'w' || e.key === 'W') && !kickPressed && !punchPressed) {
     kickPressed = true;
     // Set kick state for this player
     if (window.game && window.game.scene && window.game.scene.scenes) {
@@ -485,6 +492,12 @@ document.addEventListener('keyup', (e) => {
     const mainScene = window.game.scene.scenes.find(s => s.scene.key === 'main');
     if (mainScene && mainScene.blockInput) return;
   }
+  
+  // Block input if player is backflipping
+  if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId] && gameState.boxes[playerId].isBackflipping) {
+    return;
+  }
+  
   // Track key state
   if (e.key in window.isKeyDown) window.isKeyDown[e.key] = false;
   
@@ -520,5 +533,12 @@ document.addEventListener('keyup', (e) => {
 });
 
 setInterval(() => {
-  if (playerId !== null) sendInput();
+  if (playerId !== null) {
+    // Block up/down inputs while backflipping to prevent bouncing
+    if (gameState && gameState.boxes && gameState.boxes[playerId] && gameState.boxes[playerId].isBackflipping) {
+      inputState.up = false;
+      inputState.down = false;
+    }
+    sendInput();
+  }
 }, 50);

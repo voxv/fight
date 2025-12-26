@@ -35,6 +35,13 @@ class Player {
     this.lastComboTime = 0; // Timestamp of last successful combo
     this.prevFrontPress = false; // Track previous front press state
     this.prevBackPress = false; // Track previous back press state
+    this.upBuffer = []; // Tracks down/up presses for backflip combo
+    this.upBufferTime = []; // Timestamps for down/up presses
+    this.isBackflipping = false; // Track if currently doing backflip
+    this.backflipTimer = 0; // Duration of backflip animation
+    this.prevUpPress = false; // Track previous up press state
+    this.prevDownPress = false; // Track previous down press state
+    this.facingRight = this.id === 0; // Default facing direction
   }
   setInput(input) {
     this.input = input;
@@ -51,28 +58,113 @@ class Player {
       this.kickTimer = 250; // milliseconds
     }
 
+    // Update facing direction based on input
+    // If both left and right are pressed, keep previous direction
+    if (input.left && !input.right) {
+      this.facingRight = false;
+    } else if (input.right && !input.left) {
+      this.facingRight = true;
+    }
+
     // Combo detection: double tap towards front
-    // Player 0 faces right (front=right, back=left), Player 1 faces left (front=left, back=right)
     // Track actual left/right presses
     let leftPress = !!input.left;
     let rightPress = !!input.right;
-    
-    const frontDir = this.id === 0 ? rightPress : leftPress;
-    const backDir = this.id === 0 ? leftPress : rightPress;
+    let upPress = !!input.up;
+    let downPress = !!input.down;
 
-    // Clear combo buffer if inputs are too old (>400ms between first and latest)
-    if (this.comboBuffer.length > 0 && Date.now() - this.comboBufferTime[0] > 400) {
+    // Determine front/back based on facing direction
+    const frontDir = this.facingRight ? rightPress : leftPress;
+    const backDir = this.facingRight ? leftPress : rightPress;
+
+    // Clear combo buffer if inputs are too old (>500ms between first and latest)
+    if (this.comboBuffer.length > 0 && Date.now() - this.comboBufferTime[0] > 500) {
       this.comboBuffer = [];
       this.comboBufferTime = [];
+    }
+
+    // Clear up buffer if inputs are too old (>400ms between first and latest)
+    if (this.upBuffer.length > 0 && Date.now() - this.upBufferTime[0] > 400) {
+      this.upBuffer = [];
+      this.upBufferTime = [];
     }
 
     // Detect press (transition from false to true) rather than just checking if held
     const frontPressed = frontDir && !this.prevFrontPress;
     const backPressed = backDir && !this.prevBackPress;
+    const upPressed = upPress && !this.prevUpPress;
+    const downPressed = downPress && !this.prevDownPress;
     
     // Track this frame's state for next frame
     this.prevFrontPress = frontDir;
     this.prevBackPress = backDir;
+    this.prevUpPress = upPress;
+    this.prevDownPress = downPress;
+
+    // Add to vertical buffer when down or up is newly pressed
+    if (downPressed) {
+      this.upBuffer.push('down');
+      this.upBufferTime.push(Date.now());
+      // Keep only last 2 inputs
+      if (this.upBuffer.length > 2) {
+        this.upBuffer.shift();
+        this.upBufferTime.shift();
+      }
+    } else if (upPressed) {
+      // Only add to upBuffer if the previous was 'down', to avoid blocking normal jumps
+      if (this.upBuffer.length === 1 && this.upBuffer[0] === 'down') {
+        this.upBuffer.push('up');
+        this.upBufferTime.push(Date.now());
+        // Keep only last 2 inputs
+        if (this.upBuffer.length > 2) {
+          this.upBuffer.shift();
+          this.upBufferTime.shift();
+        }
+      } else {
+        // Not a backflip attempt, don't touch upBuffer
+      }
+    }
+
+    // Check for down-up combo (backflip) within 300ms window
+    if (
+      this.upBuffer.length === 2 &&
+      this.upBuffer[0] === 'down' &&
+      this.upBuffer[1] === 'up' &&
+      (this.upBufferTime[1] - this.upBufferTime[0] < 300)
+    ) {
+      const now = Date.now();
+      const comboCooldown = 1000; // 1000ms cooldown between combos
+
+      // Down-up combo: backflip with backward velocity
+      if (now - this.lastComboTime >= comboCooldown && !this.isJumping) {
+        this.isJumping = true;
+        this.isBackflipping = true;
+
+        // Clear the down and up inputs to prevent crouch/jump on landing
+        this.input.down = false;
+        this.input.up = false;
+
+        // Calculate arc: move backward relative to facing direction
+        const landingDistance = this.facingRight ? -100 : 100;
+        const gravity = 2.4;
+        const vy = -26; // Jump upward velocity for nice arc
+
+        // Calculate landing time: y = y0 + vy*t + 0.5*gravity*t^2, solve for when y returns to floorY
+        // 0 = vy*t + 0.5*gravity*t^2, so t = -2*vy/gravity
+        const landingTimeFrames = -2 * vy / gravity; // in 16ms frames
+        const landingTimeMs = landingTimeFrames * 16; // convert to milliseconds
+
+        // Calculate vx needed to travel landingDistance in landingTimeFrames
+        const vx = landingDistance / landingTimeFrames;
+
+        this.vy = vy;
+        this.vx = vx;
+        this.backflipTimer = Math.max(550, landingTimeMs); // At least 550ms for faster rotation
+        this.lastComboTime = now;
+      }
+      this.upBuffer = [];
+      this.upBufferTime = [];
+    }
 
     // Add to combo buffer when a direction is newly pressed
     if (frontPressed) {
@@ -93,19 +185,19 @@ class Player {
       }
     }
 
-    // Check for double tap front combo within 300ms window
+    // Check for double tap front combo within 500ms window
     if (
       this.comboBuffer.length === 2 &&
       this.comboBuffer[0] === 'front' &&
       this.comboBuffer[1] === 'front' &&
-      (this.comboBufferTime[1] - this.comboBufferTime[0] < 300)
+      (this.comboBufferTime[1] - this.comboBufferTime[0] < 500)
     ) {
       const now = Date.now();
       const comboCooldown = 1000; // 1000ms cooldown between combos
       
       // Double tap front: dash forward
       if (now - this.lastComboTime >= comboCooldown) {
-        this.dashVelocity = this.id === 0 ? 25 : -25;
+        this.dashVelocity = this.facingRight ? 25 : -25;
         this.lastComboTime = now;
       }
       this.comboBuffer = [];
@@ -114,7 +206,7 @@ class Player {
       this.comboBuffer.length === 2 &&
       this.comboBuffer[0] === 'back' &&
       this.comboBuffer[1] === 'back' &&
-      (this.comboBufferTime[1] - this.comboBufferTime[0] < 300)
+      (this.comboBufferTime[1] - this.comboBufferTime[0] < 500)
     ) {
       const now = Date.now();
       const comboCooldown = 1000; // 1000ms cooldown between combos
@@ -147,6 +239,13 @@ class Player {
       if (this.kickTimer <= 0) {
         this.isKicking = false;
         this.kickTimer = 0;
+      }
+    }
+    if (this.backflipTimer > 0) {
+      this.backflipTimer -= dt;
+      if (this.backflipTimer <= 0) {
+        this.isBackflipping = false;
+        this.backflipTimer = 0;
       }
     }
 
@@ -183,7 +282,7 @@ class Player {
     this.justLanded = false; // Reset justLanded flag each frame
 
     // Jump initiation
-    if (this.input.up && !this.isJumping && this.y === floorY) {
+    if (this.input.up && !this.isJumping && this.y >= floorY - 1) {
       this.isJumping = true;
       this.vy = -jumpSpeed;
       // Diagonal jump
@@ -222,7 +321,7 @@ class Player {
     if (this.x > 750) this.x = 750;
   }
   getState() {
-    return { x: this.x, y: this.y, isJumpingDiagonal: this.isJumpingDiagonal, health: this.health, down: !!this.input.down, isPunching: this.isPunching, isKicking: this.isKicking };
+    return { x: this.x, y: this.y, isJumping: this.isJumping, isJumpingDiagonal: this.isJumpingDiagonal, health: this.health, down: !!this.input.down, isPunching: this.isPunching, isKicking: this.isKicking, isBackflipping: this.isBackflipping, facingRight: this.facingRight };
   }
 }
 
@@ -254,7 +353,7 @@ class Game {
       p1.update(dt, p0);
       // Hit detection (same as before)
       const dist = Math.abs(p0.x - p1.x);
-      if (dist < 40 && Math.abs(p0.y - p1.y) < 40) {
+      if (dist < 70 && Math.abs(p0.y - p1.y) < 40) {
         // Player 0 attacks (only if not crouching, p1 blocks if crouched)
         if (!p0.input.down && !p1.input.down) {
           if (p0.justPunched) {
