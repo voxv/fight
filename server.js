@@ -44,7 +44,12 @@ class Player {
     this.facingRight = this.id === 0; // Default facing direction
   }
   setInput(input) {
-    this.input = input;
+    // Only keep relevant keys
+    const allowedKeys = ['left', 'right', 'up', 'down', 'punch', 'kick'];
+    this.input = {};
+    for (const key of allowedKeys) {
+      this.input[key] = !!input[key];
+    }
     // Track punch/kick for hit detection
     this.justPunched = !!input.punch;
     this.justKicked = !!input.kick;
@@ -120,9 +125,8 @@ class Player {
           this.upBuffer.shift();
           this.upBufferTime.shift();
         }
-      } else {
-        // Not a backflip attempt, don't touch upBuffer
       }
+      // For normal jump, do not clear input.up
     }
 
     // Check for down-up combo (backflip) within 300ms window
@@ -134,17 +138,15 @@ class Player {
     ) {
       const now = Date.now();
       const comboCooldown = 1000; // 1000ms cooldown between combos
-      console.log(`[DEBUG] Backflip combo detected for player ${this.id}. now: ${now}, lastComboTime: ${this.lastComboTime}, isJumping: ${this.isJumping}`);
 
       // Down-up combo: backflip with backward velocity
       if (now - this.lastComboTime >= comboCooldown && !this.isJumping) {
-        console.log(`[DEBUG] Backflip allowed for player ${this.id}. Starting backflip.`);
+        // ...removed log...
         this.isJumping = true;
         this.isBackflipping = true;
 
-        // Clear the down and up inputs to prevent crouch/jump on landing
+        // Only clear the down input to prevent crouch on landing, but do NOT clear input.up (so jump can still register)
         this.input.down = false;
-        this.input.up = false;
 
         // Calculate arc: move backward relative to facing direction
         const landingDistance = this.facingRight ? -100 : 100;
@@ -163,8 +165,6 @@ class Player {
         this.vx = vx;
         this.backflipTimer = Math.max(550, landingTimeMs); // At least 550ms for faster rotation
         this.lastComboTime = now;
-      } else {
-        console.log(`[DEBUG] Backflip NOT allowed for player ${this.id}. Cooldown or isJumping still true.`);
       }
       this.upBuffer = [];
       this.upBufferTime = [];
@@ -286,11 +286,15 @@ class Player {
     this.x = nextX;
     this.justLanded = false; // Reset justLanded flag each frame
 
-    // Jump initiation
+    // DEBUG: Log input and jump state before jump logic (JUMPTRACE for easy search)
+    if (this.input && typeof this.input === 'object') {
+      // ...removed log...
+    }
+
+    // Always allow jump if up is held, not already jumping, and on the ground (even if attacking)
     if (this.input.up && !this.isJumping && this.y >= floorY - 1) {
       this.isJumping = true;
       this.vy = -jumpSpeed;
-      // Diagonal jump
       if (this.input.left) {
         this.vx = -speed;
         this.isJumpingDiagonal = true;
@@ -301,6 +305,10 @@ class Player {
         this.vx = 0;
         this.isJumpingDiagonal = false;
       }
+      this.justLanded = false;
+      // ...removed log...
+    } else {
+      // ...removed log...
     }
 
     // Apply jump physics (no collision during jump - allow jumping over)
@@ -471,5 +479,5 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Game server running on port ${PORT}`);
+  // ...removed log...
 });

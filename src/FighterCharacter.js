@@ -26,12 +26,7 @@ export function createFighterAnimations(scene) {
     frameRate: 7,
     repeat: -1
   });
-  scene.anims.create({
-    key: 'idle',
-    frames: scene.anims.generateFrameNumbers('idle', { start: 0, end: 6 }),
-    frameRate: 3,
-    repeat: -1
-  });
+  // Removed broken 'idle' animation creation (should use 'fighter_idle')
   scene.anims.create({
     key: 'punch',
     frames: scene.anims.generateFrameNumbers('punch', { start: 0, end: 2 }),

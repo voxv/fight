@@ -19,6 +19,8 @@ window.isKeyDown = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowD
 
 function setupInputHandlers(sendInput, getPlayerId, getGameState) {
   document.addEventListener('keydown', (e) => {
+    // DEBUG: Log key pressed
+    // ...removed log...
     const playerId = getPlayerId();
     const gameState = getGameState();
     if (window.game && window.game.scene && window.game.scene.scenes) {
@@ -30,16 +32,30 @@ function setupInputHandlers(sendInput, getPlayerId, getGameState) {
     }
     if (e.key in window.isKeyDown) window.isKeyDown[e.key] = true;
     if (playerId === null) return;
-    let changed = false;
+
+    // Update inputState for each key
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && inputState.down) {
-      inputState.down = false; changed = true;
+      inputState.down = false;
     }
-    if (e.key === 'ArrowLeft' && !inputState.left) { inputState.left = true; changed = true; }
-    if (e.key === 'ArrowRight' && !inputState.right) { inputState.right = true; changed = true; }
-    if (e.key === 'ArrowUp' && !inputState.up) {
-      inputState.up = true; changed = true;
+    if (e.key === 'ArrowLeft') { inputState.left = true; }
+    if (e.key === 'ArrowRight') { inputState.right = true; }
+    if (e.key === 'ArrowUp') {
+      inputState.up = true;
       // Clear crouch if jumping to prevent bounce
-      if (inputState.down) { inputState.down = false; changed = true; }
+      if (inputState.down) { inputState.down = false; }
+      // Always include current attack state if attack key is held
+      if (punchPressed) inputState.punch = true;
+      if (kickPressed) inputState.kick = true;
+      // DEBUG: Log if jump is registered after attack
+      setTimeout(() => {
+        const playerId = getPlayerId();
+        const gameState = getGameState();
+        if (gameState && gameState.boxes && typeof playerId === 'number' && gameState.boxes[playerId]) {
+          const box = gameState.boxes[playerId];
+            // ...removed log...
+        }
+      }, 100);
+        // ...removed log...
     }
     if (e.key === 'ArrowDown' && !inputState.down && !inputState.up) {
       // Only allow crouch if not jumping (client-side check)
@@ -48,27 +64,24 @@ function setupInputHandlers(sendInput, getPlayerId, getGameState) {
         isJumping = !!(gameState.boxes[playerId].isJumping || gameState.boxes[playerId].isJumpingDiagonal);
       }
       if (!isJumping) {
-        inputState.down = true; changed = true;
-        if (inputState.left) { inputState.left = false; changed = true; }
-        if (inputState.right) { inputState.right = false; changed = true; }
+        inputState.down = true;
+        if (inputState.left) { inputState.left = false; }
+        if (inputState.right) { inputState.right = false; }
       }
     }
     if ((e.key === 'q' || e.key === 'Q') && !punchPressed) {
       punchPressed = true;
       punchState[playerId] = true;
       inputState.punch = true;
-      sendInput({ ...inputState });
-      inputState.punch = false;
     }
     if ((e.key === 'w' || e.key === 'W') && !kickPressed) {
       kickPressed = true;
       inputState.kick = true;
-      sendInput({ ...inputState });
-      inputState.kick = false;
     }
-    if (changed) {
-      sendInput({ ...inputState });
-    }
+
+    // Always send the full current input state on every keydown
+    // ...removed log...
+    sendInput({ ...inputState });
   });
 
   document.addEventListener('keyup', (e) => {
@@ -99,9 +112,13 @@ function setupInputHandlers(sendInput, getPlayerId, getGameState) {
     if (e.key === 'q' || e.key === 'Q') {
       punchPressed = false;
       punchState[playerId] = false;
+      inputState.punch = false;
+      sendInput({ ...inputState });
     }
     if (e.key === 'w' || e.key === 'W') {
       kickPressed = false;
+      inputState.kick = false;
+      sendInput({ ...inputState });
     }
     if (changed) {
       sendInput({ ...inputState });
@@ -111,6 +128,9 @@ function setupInputHandlers(sendInput, getPlayerId, getGameState) {
 
 function getInputState() {
   return { ...inputState };
+    if (inputState.up) {
+      // ...removed log...
+    }
 }
 
 export { setupInputHandlers, getInputState, isKeyPressed, punchState };

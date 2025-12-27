@@ -1,3 +1,13 @@
+import { setupInputHandlers, getInputState } from './input.js';
+// Activate input event listeners and debug logs
+setupInputHandlers(
+  function sendInputWrapper() {
+    const state = getInputState();
+    ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'input', ...state }));
+  },
+  () => playerId,
+  () => gameState
+);
 import { isKeyPressed } from './utils.js';
 import { characterDisplayConfig } from './config/characterDisplayConfig.js';
 // Basic client for Mortal Kombat style game
@@ -87,6 +97,10 @@ class MainScene extends Phaser.Scene {
     this.kickTimer = [0, 0];
   }
   update(time, delta) {
+    if (this.winPopupShown) {
+      // Stop all movement and animation while win/lose popup is visible
+      return;
+    }
     // Animate idle
     idleFrameTimer += delta;
     if (idleFrameTimer > IDLE_FRAME_DURATION) {
@@ -204,7 +218,7 @@ class MainScene extends Phaser.Scene {
           // Always set display size for crouch every frame
           sprite.setDisplaySize(config.crouch.width, config.crouch.height);
           sprite.y = box.y + config.crouch.yOffset;
-        } else if (((i === playerId && this.kickState && this.kickState[i]) || (i !== playerId && box && box.isKicking)) && !isPunching) {
+        } else if (((i === playerId && this.kickState && this.kickState[i]) || (i !== playerId && box && box.isKicking))) {
           if (isKnight) {
             if (sprite.anims.currentAnim?.key !== 'knight_attack' || sprite.texture.key !== 'knight_attack') {
               sprite.setTexture('knight_attack');
@@ -328,14 +342,26 @@ class MainScene extends Phaser.Scene {
             sprite.x = box.x + (sprite.flipX ? config.attack.xOffset.left : config.attack.xOffset.right);
           }
         } else if (box && (box.isJumping || box.isJumpingDiagonal)) {
-          const jumpKey = isKnight ? 'knight_jump' : 'fighter_jump';
-          if (sprite.anims.currentAnim?.key !== jumpKey || sprite.texture.key !== jumpKey) {
-            sprite.setTexture(jumpKey);
-            sprite.setOrigin(0, 1);
-            sprite.play(jumpKey);
+          // If attacking while jumping, play attack animation but use jump Y/size
+          if ((isPunching || ((i === playerId && this.kickState && this.kickState[i]) || (i !== playerId && box && box.isKicking)))) {
+            const attackKey = isKnight ? 'knight_attack' : 'fighter_attack';
+            if (sprite.anims.currentAnim?.key !== attackKey || sprite.texture.key !== attackKey) {
+              sprite.setTexture(attackKey);
+              sprite.setOrigin(0, 1);
+              sprite.play(attackKey);
+            }
+            sprite.setDisplaySize(config.attack.width, config.attack.height);
+            sprite.y = box.y + config.jump.yOffset;
+          } else {
+            const jumpKey = isKnight ? 'knight_jump' : 'fighter_jump';
+            if (sprite.anims.currentAnim?.key !== jumpKey || sprite.texture.key !== jumpKey) {
+              sprite.setTexture(jumpKey);
+              sprite.setOrigin(0, 1);
+              sprite.play(jumpKey);
+            }
+            sprite.setDisplaySize(config.jump.width, config.jump.height);
+            sprite.y = box.y + config.jump.yOffset;
           }
-          sprite.setDisplaySize(config.jump.width, config.jump.height);
-          sprite.y = box.y + config.jump.yOffset;
         } else if ((i === playerId && (inputState.left || inputState.right) && !inputState.up) ||
                    (i !== playerId && gameState.boxes[i] && Math.abs(gameState.boxes[i].x - phaserPlayers[i].x) > 0)) {
           const runKey = isKnight ? 'knight_run' : 'fighter_run';
@@ -347,7 +373,10 @@ class MainScene extends Phaser.Scene {
           sprite.setDisplaySize(config.run.width, config.run.height);
           sprite.y = box.y + config.run.yOffset;
         } else {
-          if (box.y === FLOOR_Y) {
+          // Force idle if no movement keys are pressed
+          const noMovement = (i === playerId && !inputState.left && !inputState.right && !inputState.up && !inputState.down) ||
+                             (i !== playerId && box && !box.left && !box.right && !box.up && !box.down);
+          if (box.y === FLOOR_Y || noMovement) {
             if (sprite.originY !== 1) {
               sprite.setOrigin(0, 1);
               sprite.setRotation(0);
@@ -385,10 +414,8 @@ class MainScene extends Phaser.Scene {
           // 15 HP = kick, 10 HP = punch
           if (damageDealt >= 15) {
             this.audioManager.play('kick');
-            console.log('Playing kick sound! Damage:', damageDealt);
           } else if (damageDealt > 0) {
             this.audioManager.play('punch');
-            console.log('Playing punch sound! Damage:', damageDealt);
           }
         }
         // Update previous health for next frame
@@ -400,6 +427,16 @@ class MainScene extends Phaser.Scene {
         let winnerIndex = gameState.boxes[0].health <= 0 ? 1 : 0;
         let isYouWinner = (winnerIndex === playerId);
         if (!this.winPopupShown) {
+          // Set the winning character to idle sprite and frame 0 (do this only once when popup appears)
+          if (phaserPlayers[winnerIndex]) {
+            const winnerSprite = phaserPlayers[winnerIndex].sprite;
+            if (winnerIndex === 0) {
+              winnerSprite.setTexture('fighter_idle');
+            } else {
+              winnerSprite.setTexture('knight_idle');
+            }
+            winnerSprite.setFrame(0);
+          }
           this.winPopupShown = true;
           this.blockInput = true;
           this.audioManager.play('death');
@@ -488,13 +525,11 @@ document.addEventListener('keydown', (e) => {
       (gameState.boxes[playerId].isPunching || gameState.boxes[playerId].isKicking) &&
       (e.key === 'ArrowDown' || e.key === 'ArrowUp')
     ) {
-      console.log(`[DEBUG] Input blocked for backflip during attack for key: ${e.key}`);
       return;
     }
   // Debug: log keydown and backflip state
   if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId]) {
     const box = gameState.boxes[playerId];
-    console.log(`[DEBUG] Keydown: ${e.key}, isBackflipping: ${box.isBackflipping}, isJumping: ${box.isJumping}, y: ${box.y}`);
   }
   if (window.game && window.game.scene && window.game.scene.scenes) {
     const mainScene = window.game.scene.scenes.find(s => s.scene.key === 'main');
@@ -508,7 +543,6 @@ document.addEventListener('keydown', (e) => {
     gameState.boxes[playerId] &&
     gameState.boxes[playerId].isBackflipping
   ) {
-    console.log(`[DEBUG] Input blocked during backflip for key: ${e.key}`);
     return;
   }
   
@@ -557,7 +591,6 @@ document.addEventListener('keyup', (e) => {
   // Debug: log keyup and backflip state
   if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId]) {
     const box = gameState.boxes[playerId];
-    console.log(`[DEBUG] Keyup: ${e.key}, isBackflipping: ${box.isBackflipping}, isJumping: ${box.isJumping}, y: ${box.y}`);
   }
   if (window.game && window.game.scene && window.game.scene.scenes) {
     const mainScene = window.game.scene.scenes.find(s => s.scene.key === 'main');
@@ -571,7 +604,6 @@ document.addEventListener('keyup', (e) => {
     gameState.boxes[playerId] &&
     gameState.boxes[playerId].isBackflipping
   ) {
-    console.log(`[DEBUG] Input blocked during backflip for key: ${e.key}`);
     return;
   }
   
@@ -605,7 +637,6 @@ document.addEventListener('keyup', (e) => {
     }
   }
   if (changed) {
-    console.log(`[DEBUG] Sending input after key event: ${e.key}, inputState:`, JSON.stringify(inputState));
     sendInput();
   }
 });
