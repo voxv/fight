@@ -37,8 +37,14 @@ function setupInputHandlers(sendInput, getPlayerId, getGameState) {
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && inputState.down) {
       inputState.down = false;
     }
-    if (e.key === 'ArrowLeft') { inputState.left = true; }
-    if (e.key === 'ArrowRight') { inputState.right = true; }
+    if (e.key === 'ArrowLeft') {
+      inputState.left = true;
+      inputState.up = false; // Clear jump when running left
+    }
+    if (e.key === 'ArrowRight') {
+      inputState.right = true;
+      inputState.up = false; // Clear jump when running right
+    }
     if (e.key === 'ArrowUp') {
       inputState.up = true;
       // Do NOT clear crouch when up is pressed; holding down should block jump
