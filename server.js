@@ -44,6 +44,11 @@ class Player {
     this.facingRight = this.id === 0; // Default facing direction
   }
   setInput(input) {
+        // Cancel punch if crouch (down) is pressed during attack
+        if (input.down && this.isPunching) {
+          this.isPunching = false;
+          this.punchTimer = 0;
+        }
     // Only keep relevant keys
     const allowedKeys = ['left', 'right', 'up', 'down', 'punch', 'kick'];
     this.input = {};
@@ -180,13 +185,9 @@ class Player {
         this.comboBufferTime.shift();
       }
     } else if (backPressed) {
-      this.comboBuffer.push('back');
-      this.comboBufferTime.push(Date.now());
-      // Keep only last 2 inputs
-      if (this.comboBuffer.length > 2) {
-        this.comboBuffer.shift();
-        this.comboBufferTime.shift();
-      }
+      // If a back is pressed, clear the combo buffer to prevent front-back-front from triggering dash
+      this.comboBuffer = [];
+      this.comboBufferTime = [];
     }
 
     // Check for double tap front combo within 500ms window
@@ -291,8 +292,8 @@ class Player {
       // ...removed log...
     }
 
-    // Always allow jump if up is held, not already jumping, and on the ground (even if attacking)
-    if (this.input.up && !this.isJumping && this.y >= floorY - 1) {
+    // Only allow jump if up is held, not already jumping, on the ground, and NOT crouching
+    if (this.input.up && !this.isJumping && this.y >= floorY - 1 && !this.input.down) {
       this.isJumping = true;
       this.vy = -jumpSpeed;
       if (this.input.left) {
@@ -306,9 +307,6 @@ class Player {
         this.isJumpingDiagonal = false;
       }
       this.justLanded = false;
-      // ...removed log...
-    } else {
-      // ...removed log...
     }
 
     // Apply jump physics (no collision during jump - allow jumping over)

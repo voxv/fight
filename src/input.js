@@ -41,23 +41,12 @@ function setupInputHandlers(sendInput, getPlayerId, getGameState) {
     if (e.key === 'ArrowRight') { inputState.right = true; }
     if (e.key === 'ArrowUp') {
       inputState.up = true;
-      // Clear crouch if jumping to prevent bounce
-      if (inputState.down) { inputState.down = false; }
+      // Do NOT clear crouch when up is pressed; holding down should block jump
       // Always include current attack state if attack key is held
       if (punchPressed) inputState.punch = true;
       if (kickPressed) inputState.kick = true;
-      // DEBUG: Log if jump is registered after attack
-      setTimeout(() => {
-        const playerId = getPlayerId();
-        const gameState = getGameState();
-        if (gameState && gameState.boxes && typeof playerId === 'number' && gameState.boxes[playerId]) {
-          const box = gameState.boxes[playerId];
-            // ...removed log...
-        }
-      }, 100);
-        // ...removed log...
     }
-    if (e.key === 'ArrowDown' && !inputState.down && !inputState.up) {
+    if (e.key === 'ArrowDown') {
       // Only allow crouch if not jumping (client-side check)
       let isJumping = false;
       if (typeof gameState === 'object' && gameState && typeof playerId === 'number' && gameState.boxes && gameState.boxes[playerId]) {
@@ -65,6 +54,11 @@ function setupInputHandlers(sendInput, getPlayerId, getGameState) {
       }
       if (!isJumping) {
         inputState.down = true;
+        // Cancel punch and kick immediately when crouching
+        inputState.punch = false;
+        inputState.kick = false;
+        punchPressed = false;
+        kickPressed = false;
         if (inputState.left) { inputState.left = false; }
         if (inputState.right) { inputState.right = false; }
       }
