@@ -134,9 +134,11 @@ class Player {
     ) {
       const now = Date.now();
       const comboCooldown = 1000; // 1000ms cooldown between combos
+      console.log(`[DEBUG] Backflip combo detected for player ${this.id}. now: ${now}, lastComboTime: ${this.lastComboTime}, isJumping: ${this.isJumping}`);
 
       // Down-up combo: backflip with backward velocity
       if (now - this.lastComboTime >= comboCooldown && !this.isJumping) {
+        console.log(`[DEBUG] Backflip allowed for player ${this.id}. Starting backflip.`);
         this.isJumping = true;
         this.isBackflipping = true;
 
@@ -147,7 +149,7 @@ class Player {
         // Calculate arc: move backward relative to facing direction
         const landingDistance = this.facingRight ? -100 : 100;
         const gravity = 2.4;
-        const vy = -26; // Jump upward velocity for nice arc
+        const vy = -28; // Jump upward velocity for nice arc
 
         // Calculate landing time: y = y0 + vy*t + 0.5*gravity*t^2, solve for when y returns to floorY
         // 0 = vy*t + 0.5*gravity*t^2, so t = -2*vy/gravity
@@ -161,6 +163,8 @@ class Player {
         this.vx = vx;
         this.backflipTimer = Math.max(550, landingTimeMs); // At least 550ms for faster rotation
         this.lastComboTime = now;
+      } else {
+        console.log(`[DEBUG] Backflip NOT allowed for player ${this.id}. Cooldown or isJumping still true.`);
       }
       this.upBuffer = [];
       this.upBufferTime = [];
@@ -246,6 +250,7 @@ class Player {
       if (this.backflipTimer <= 0) {
         this.isBackflipping = false;
         this.backflipTimer = 0;
+        this.isJumping = false; // Allow new backflip after timer ends
       }
     }
 
@@ -303,6 +308,10 @@ class Player {
       this.y += this.vy * dt / 16;
       this.x += this.vx * dt / 16;
       this.vy += gravity * dt / 16;
+      // Clamp y to floor during backflip
+      if (this.isBackflipping && this.y > floorY) {
+        this.y = floorY;
+      }
       // Land on floor
       if (this.y >= floorY) {
         this.y = floorY;

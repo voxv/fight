@@ -142,7 +142,7 @@ class MainScene extends Phaser.Scene {
         sprite.x = box.x;
         // Y position will be set based on the character's current state below
         // No tint applied
-        
+
         // Scale up slightly and set additive blend to make characters bold and distinct
         sprite.setScale(1.1);
         sprite.setBlendMode(Phaser.BlendModes.NORMAL);
@@ -170,6 +170,14 @@ class MainScene extends Phaser.Scene {
         const charType = isKnight ? 'knight' : 'fighter';
         const config = characterDisplayConfig[charType];
         const isCrouching = (i === playerId && inputState.down) || (i !== playerId && box && box.down);
+        // Determine if punch animation should play (local: punchState[i], remote: box.isPunching)
+        const isPunching = (i === playerId && punchState[i]) || (i !== playerId && box && box.isPunching);
+
+        // --- FIX: Reset backflipStartTime if not backflipping ---
+        if (!((i === playerId && box && box.isBackflipping) || (i !== playerId && box && box.isBackflipping))) {
+          backflipStartTime[i] = null;
+        }
+
         if (box.health <= 0) {
           sprite.stop();
           if (isKnight) {
@@ -196,7 +204,7 @@ class MainScene extends Phaser.Scene {
           // Always set display size for crouch every frame
           sprite.setDisplaySize(config.crouch.width, config.crouch.height);
           sprite.y = box.y + config.crouch.yOffset;
-        } else if (((i === playerId && this.kickState && this.kickState[i]) || (i !== playerId && box && box.isKicking)) && !((i === playerId && punchState[i]) || (i !== playerId && box && box.isPunching))) {
+        } else if (((i === playerId && this.kickState && this.kickState[i]) || (i !== playerId && box && box.isKicking)) && !isPunching) {
           if (isKnight) {
             if (sprite.anims.currentAnim?.key !== 'knight_attack' || sprite.texture.key !== 'knight_attack') {
               sprite.setTexture('knight_attack');
@@ -230,17 +238,21 @@ class MainScene extends Phaser.Scene {
           }
         } else if ((i === playerId && box && box.isBackflipping) || (i !== playerId && box && box.isBackflipping)) {
           sprite.stop();
+          // Clamp y to FLOOR_Y during backflip so sprite never dips below the floor
+          const clampedY = Math.min(box.y, FLOOR_Y);
           if (isKnight) {
+            // Force knight_idle texture and frame 0 every frame during backflip
+            sprite.anims.stop();
             sprite.setTexture('knight_idle');
-            sprite.setOrigin(0.5, 0.3);
+            sprite.setOrigin(0, 1); // Align bottom-left to floor
             sprite.setFrame(0);
-            sprite.y = box.y + config.backflip.yOffset;
+            sprite.y = clampedY + config.backflip.yOffset;
             sprite.setDisplaySize(config.backflip.width, config.backflip.height);
           } else {
             sprite.setTexture('fighter_idle');
-            sprite.setOrigin(0.5, 0.3);
+            sprite.setOrigin(0, 1); // Align bottom-left to floor
             sprite.setDisplaySize(config.backflip.width, config.backflip.height);
-            sprite.y = box.y + config.backflip.yOffset;
+            sprite.y = clampedY + config.backflip.yOffset;
           }
           if (box.facingRight !== undefined) {
             sprite.setFlipX(!box.facingRight);
@@ -252,7 +264,38 @@ class MainScene extends Phaser.Scene {
           const backflipProgress = Math.min(elapsedTime / BACKFLIP_DURATION, 1);
           const rotationDir = box.facingRight ? -1 : 1;
           sprite.setRotation(rotationDir * backflipProgress * Math.PI * 2);
-        } else if ((i === playerId && punchState[i]) || (i !== playerId && box && box.isPunching)) {
+          if (isKnight) {
+            if (sprite.anims.currentAnim?.key !== 'knight_attack' || sprite.texture.key !== 'knight_attack') {
+              sprite.setTexture('knight_attack');
+              sprite.setOrigin(0, 1);
+              if (sprite.flipX) {
+                sprite.setDisplaySize(config.attackFlip.width, config.attackFlip.height);
+              } else {
+                sprite.setDisplaySize(config.attack.width, config.attack.height);
+              }
+              sprite.play('knight_attack');
+              punchTimer[i] = 320;
+            }
+            if (sprite.flipX) {
+              sprite.setDisplaySize(config.attackFlip.width, config.attackFlip.height);
+            } else {
+              sprite.setDisplaySize(config.attack.width, config.attack.height);
+            }
+            sprite.y = box.y + config.attack.yOffset;
+            sprite.x = box.x + (sprite.flipX ? config.attack.xOffset.left : config.attack.xOffset.right);
+          } else {
+            if (sprite.anims.currentAnim?.key !== 'fighter_attack' || sprite.texture.key !== 'fighter_attack') {
+              sprite.setTexture('fighter_attack');
+              sprite.setOrigin(0, 1);
+              sprite.play('fighter_attack');
+              punchTimer[i] = 250;
+            }
+            // Always use config.attack for fighter's punch
+            sprite.setDisplaySize(config.attack.width, config.attack.height);
+            sprite.y = box.y + config.attack.yOffset;
+            sprite.x = box.x + (sprite.flipX ? config.attack.xOffset.left : config.attack.xOffset.right);
+          }
+        } else if (isPunching) {
           if (isKnight) {
             if (sprite.anims.currentAnim?.key !== 'knight_attack' || sprite.texture.key !== 'knight_attack') {
               sprite.setTexture('knight_attack');
@@ -436,13 +479,36 @@ let punchPressed = false;
 let kickPressed = false;
 
 document.addEventListener('keydown', (e) => {
+    // Prevent starting a backflip combo while attacking (punch or kick)
+    if (
+      playerId !== null &&
+      gameState &&
+      gameState.boxes &&
+      gameState.boxes[playerId] &&
+      (gameState.boxes[playerId].isPunching || gameState.boxes[playerId].isKicking) &&
+      (e.key === 'ArrowDown' || e.key === 'ArrowUp')
+    ) {
+      console.log(`[DEBUG] Input blocked for backflip during attack for key: ${e.key}`);
+      return;
+    }
+  // Debug: log keydown and backflip state
+  if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId]) {
+    const box = gameState.boxes[playerId];
+    console.log(`[DEBUG] Keydown: ${e.key}, isBackflipping: ${box.isBackflipping}, isJumping: ${box.isJumping}, y: ${box.y}`);
+  }
   if (window.game && window.game.scene && window.game.scene.scenes) {
     const mainScene = window.game.scene.scenes.find(s => s.scene.key === 'main');
     if (mainScene && mainScene.blockInput) return;
   }
-  
-  // Block input if player is backflipping
-  if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId] && gameState.boxes[playerId].isBackflipping) {
+  // Block all input if player is backflipping
+  if (
+    playerId !== null &&
+    gameState &&
+    gameState.boxes &&
+    gameState.boxes[playerId] &&
+    gameState.boxes[playerId].isBackflipping
+  ) {
+    console.log(`[DEBUG] Input blocked during backflip for key: ${e.key}`);
     return;
   }
   
@@ -488,13 +554,24 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keyup', (e) => {
+  // Debug: log keyup and backflip state
+  if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId]) {
+    const box = gameState.boxes[playerId];
+    console.log(`[DEBUG] Keyup: ${e.key}, isBackflipping: ${box.isBackflipping}, isJumping: ${box.isJumping}, y: ${box.y}`);
+  }
   if (window.game && window.game.scene && window.game.scene.scenes) {
     const mainScene = window.game.scene.scenes.find(s => s.scene.key === 'main');
     if (mainScene && mainScene.blockInput) return;
   }
-  
-  // Block input if player is backflipping
-  if (playerId !== null && gameState && gameState.boxes && gameState.boxes[playerId] && gameState.boxes[playerId].isBackflipping) {
+  // Block all input if player is backflipping
+  if (
+    playerId !== null &&
+    gameState &&
+    gameState.boxes &&
+    gameState.boxes[playerId] &&
+    gameState.boxes[playerId].isBackflipping
+  ) {
+    console.log(`[DEBUG] Input blocked during backflip for key: ${e.key}`);
     return;
   }
   
@@ -528,6 +605,7 @@ document.addEventListener('keyup', (e) => {
     }
   }
   if (changed) {
+    console.log(`[DEBUG] Sending input after key event: ${e.key}, inputState:`, JSON.stringify(inputState));
     sendInput();
   }
 });
